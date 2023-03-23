@@ -19,18 +19,24 @@ To run: {
 #include<getopt.h>
 #include<sys/stat.h>
 #include <sys/types.h>
-#include<time.h>
+#include<time.h> 
 
 #define MAX_PATH_SIZE 2000
 
-void sizeRestrictedPrint(struct dirent *dirent, int maxFileSize, int tabSpaces, int count, char *path, char *flagStr);
-void stringPattern(struct dirent *dirent, int tabSpaces,char *pattern, int dirDepth, char *flagStr, int maxFileSize, int count, char *path);
+char *array[8192];
+int arrCount = 0;
+int duplicateCount =0;
+
+void sizeRestrictedPrint(struct dirent *dirent, int maxFileSize, int tabSpaces, int count, char *path, char *flagStr, char *smallEcmd, int capitalE);
+void stringPattern(struct dirent *dirent, int tabSpaces,char *pattern, int dirDepth, char *flagStr, int maxFileSize, int count, char *path, char *smallEcmd, int capitalE);
 void printReg(struct dirent *dirent, int tabSpaces, int count);
 void printReg(struct dirent *dirent, int tabSpaces, int count);
-void traverseDirectory(char *path, int tabSpaces, int maxFileSize, char *flagStr, char *pattern, int dirDepth, int isReg);
+void traverseDirectory(char *path, int tabSpaces, int maxFileSize, char *flagStr, char *pattern, int dirDepth, int isReg, char *smallEcmd, char *capitalEcmd, int capitalE);
 char *addStr(char *first, char *second);
-void printExtraInfo(struct dirent *dirent, char *path);
+void printExtraInfo(struct dirent *dirent, char *path, char *flagStr, char *smallEcmd);
 void printOnly(struct dirent *dirent, int tabSpaces, char *path, char *type);
+void smallEfunc(struct dirent *dirent, char *smallEcmd, char *path);
+void capitalEfunc();
 
 
 char *filetype(unsigned char type) {
@@ -50,12 +56,12 @@ char *filetype(unsigned char type) {
 }
 
 void printOnly(struct dirent *dirent, int tabSpaces, char *path,char *type) {
+    
     char *fType = filetype(dirent->d_type);
 
     if(strcmp(fType, "regular file") == 0 && strcmp(type,"p") == 0 ) {
         printf("%*s %s (%s)\n",4*tabSpaces," ", dirent->d_name, filetype(dirent->d_type));
     }
-    
     if(strcmp(fType, "directory") == 0 && strcmp(type, "d") == 0) {
         printf("%*s %s (%s)\n",4*tabSpaces," ", dirent->d_name, filetype(dirent->d_type));
     }
@@ -66,15 +72,23 @@ void printReg(struct dirent *dirent, int tabSpaces, int count) {
 
 }
 
-void printExtraInfo(struct dirent *dirent, char *path) {
-    // char childDir[150];
+void printExtraInfo(struct dirent *dirent, char *path, char *flagStr, char *smallEcmd) {
+
     struct stat buf;
-    stat(path, &buf);
+    char *x = malloc(500);
+    strcpy(x,path);
+    strcat(x,"/");
+    strcat(x,dirent->d_name);
+    stat(x, &buf);
 
     printf("%s", dirent->d_name);
     off_t fByteSize = buf.st_size;
-    printf("\t%lld ",fByteSize);
-
+    if(S_ISDIR(buf.st_mode)) {
+        printf("\t0 ");
+    }
+    else {
+        printf("\t%lld ",fByteSize);
+    }
 
     if (S_ISDIR(buf.st_mode))
         putchar('d');
@@ -118,41 +132,128 @@ void printExtraInfo(struct dirent *dirent, char *path) {
         putchar('-');
 
     printf("\t%s", ctime(&buf.st_atime));
+
 }
 
-void sizeRestrictedPrint(struct dirent *dirent, int maxFileSize, int tabSpaces, int count, char *path, char *flagStr) {
+void smallEfunc(struct dirent *dirent, char *smallEcmd, char *path) {
+
+    char *fType = filetype(dirent->d_type);
+
+    array[arrCount] = path;
+    arrCount = 1+arrCount;
+    array[arrCount] = (char* )NULL;
+
+    if(strcmp(fType, "directory") != 0) {
+        pid_t pid = fork();
+        if(pid < 0) {
+            printf("Error in forking\n");
+            exit(-1);
+        }
+        else if(pid == 0) {
+            execvp(array[0], array);
+            printf("Error in execution\n");
+            exit(-1);
+        }
+        else {
+            waitpid(pid, NULL, 0);
+            printf("\n");
+        }
+    } 
+    
+    arrCount = duplicateCount;
+}
+
+void capitalEfunc() {
+
+    array[arrCount] = (char *)NULL;
+    
+        pid_t pid = fork();
+        if(pid < 0) {
+            printf("Error in forking\n");
+            exit(-1);
+        }
+        else if(pid == 0) {
+
+            execvp(array[0], array);
+            printf("Error in execution\n");
+            exit(-1);
+        }
+        else {
+            waitpid(pid, NULL, 0);
+            printf("\n");
+        }
+}
+
+void sizeRestrictedPrint(struct dirent *dirent, int maxFileSize, int tabSpaces, int count, char *path, char *flagStr, char *smallEcmd, int capitalE) {
+    
     struct stat buf;
+    char *x = malloc(5000);
+    strcpy(x,path);
+    strcat(x,"/");
+    strcat(x,dirent->d_name);
+    stat(x, &buf);
+
+    off_t fByteSize = buf.st_size;
+    if(fByteSize < maxFileSize && strstr(flagStr, "S") != NULL) {
+        printExtraInfo(dirent, x, flagStr, smallEcmd);
+    }
+    else if(fByteSize < maxFileSize && strstr(flagStr, "e") != NULL) {
+        smallEfunc(dirent, smallEcmd, x);
+    }
+    else if(fByteSize < maxFileSize && capitalE == 1) {
+        if(strstr(x, "git") != NULL) {
+            printReg(dirent, tabSpaces, count);
+        }
+        else{
+            array[arrCount] = x;
+            arrCount = 1+arrCount;
+            printReg(dirent, tabSpaces, count);
+        }
+
+    }
+    else if(dirent->d_type == DT_DIR || fByteSize < maxFileSize) {
+        printf("%*s[%d] %s \n", 4 * tabSpaces, " ", count, dirent->d_name);
+    }
+   
+}
+
+void stringPattern(struct dirent *dirent, int tabSpaces,char *pattern, int dirDepth, char *flagStr, int maxFileSize, int count, char *path, char *smallEcmd, int capitalE) {
+
     char *x = malloc(500);
     strcpy(x,path);
     strcat(x,"/");
     strcat(x,dirent->d_name);
 
-    stat(x, &buf);
-    off_t fByteSize = buf.st_size;
-    if(fByteSize < maxFileSize && strstr(flagStr, "S") != NULL) {
-        printExtraInfo(dirent, x);
-    }
-    else if(dirent->d_type == DT_DIR || fByteSize < maxFileSize) {
-        printf("%*s[%d] %s (%lld)\n", 4 * tabSpaces, " ", count, dirent->d_name, fByteSize);
-    }
-   
-}
-
-void stringPattern(struct dirent *dirent, int tabSpaces,char *pattern, int dirDepth, char *flagStr, int maxFileSize, int count, char *path) {
-
     if (strstr(flagStr, "s") != NULL && tabSpaces <= dirDepth && strstr(dirent->d_name, pattern) != NULL) {
-        sizeRestrictedPrint(dirent, maxFileSize, tabSpaces, count, path, flagStr);
-        // printf("%*s %s (%s)\n", 4 * tabSpaces, " ", dirent->d_name, filetype(dirent->d_type)); 
+        sizeRestrictedPrint(dirent, maxFileSize, tabSpaces, count, path, flagStr, smallEcmd, capitalE);
     }
     else if(strstr(flagStr, "S") != NULL && tabSpaces <= dirDepth && strstr(dirent->d_name, pattern) != NULL) {
-        printExtraInfo(dirent, path);
+        printExtraInfo(dirent, path, flagStr, smallEcmd);
+    }
+    else if(strstr(flagStr, "e") != NULL && tabSpaces <= dirDepth && strstr(dirent->d_name, pattern) != NULL) {
+        smallEfunc(dirent, smallEcmd, x);
+    }
+    else if(strstr(dirent->d_name, pattern) != NULL && tabSpaces < dirDepth && capitalE == 1 && strstr(flagStr, "s") != NULL) {
+        array[arrCount] = x;
+        arrCount = 1+arrCount;
+        sizeRestrictedPrint(dirent, maxFileSize, tabSpaces, count, path, flagStr, smallEcmd, capitalE);
+    }
+    else if(strstr(dirent->d_name, pattern) != NULL && tabSpaces < dirDepth && capitalE == 1) {
+        if(strstr(x, "git") != NULL) {
+            printReg(dirent, tabSpaces, count);
+        }
+        else{
+            array[arrCount] = x;
+            arrCount = 1+arrCount;
+            printReg(dirent, tabSpaces, count);
+        }
     }
     else if(strstr(dirent->d_name, pattern) != NULL && tabSpaces<=dirDepth) {
         printf("%*s %s (%s)\n", 4 * tabSpaces, " ", dirent->d_name, filetype(dirent->d_type)); 
     }
 }
 
-void traverseDirectory(char *path, int tabSpaces, int maxFileSize, char *flagStr, char *pattern, int dirDepth, int isReg) {
+void traverseDirectory(char *path, int tabSpaces, int maxFileSize, char *flagStr, char *pattern, int dirDepth, int isReg, char *smallEcmd, char *capitalEcmd, int capitalE) {
     struct dirent *dirent;
     DIR *parentDir;
     // First, we need to open the directory.
@@ -171,30 +272,79 @@ void traverseDirectory(char *path, int tabSpaces, int maxFileSize, char *flagStr
         }
 
         // all flags
-        if(strstr(flagStr, "f") != NULL && strstr(flagStr, "s") != NULL && strstr(flagStr, "S") != NULL) {
-            stringPattern(dirent, tabSpaces, pattern, dirDepth, flagStr, maxFileSize, count, path);
+        // f, s & S
+        if(strstr(flagStr, "f") != NULL && strstr(flagStr, "s") != NULL && strstr(flagStr, "S") != NULL && strstr(flagStr, "e") == NULL && strstr(flagStr, "E") == NULL) {
+            stringPattern(dirent, tabSpaces, pattern, dirDepth, flagStr, maxFileSize, count, path, smallEcmd, capitalE);
         }
-        // double flags
-        else if (strstr(flagStr, "s") != NULL && strstr(flagStr, "f") != NULL && strstr(flagStr, "S") == NULL) {
-            stringPattern(dirent, tabSpaces, pattern, dirDepth, flagStr, maxFileSize, count, path);
-        } 
-        else if(strstr(flagStr, "s") != NULL && strstr(flagStr, "S") != NULL && strstr(flagStr, "f") == NULL) {
-            sizeRestrictedPrint(dirent, maxFileSize, tabSpaces, count, path, flagStr);
-        }
-        else if(strstr(flagStr, "S") != NULL && strstr(flagStr, "f") != NULL && strstr(flagStr, "s") == NULL) {
-            stringPattern(dirent, tabSpaces, pattern, dirDepth, flagStr, maxFileSize, count, path);
+        //three flags
+        // s f and e
+        else if(strstr(flagStr, "s") != NULL && strstr(flagStr, "e") != NULL && strstr(flagStr,"S") == NULL && strstr(flagStr, "f") != NULL && strstr(flagStr, "E") == NULL) {
+            stringPattern(dirent, tabSpaces, pattern, dirDepth, flagStr, maxFileSize, count, path, smallEcmd, capitalE);
+        } // s f and E
+        else if(strstr(flagStr, "s") != NULL && strstr(flagStr, "E") != NULL && strstr(flagStr,"S") == NULL && strstr(flagStr, "f") != NULL && strstr(flagStr, "e") == NULL) {
+            stringPattern(dirent, tabSpaces, pattern, dirDepth, flagStr, maxFileSize, count, path, smallEcmd, capitalE);
         }
 
+        // double flags
+        // s and f
+        else if (strstr(flagStr, "s") != NULL && strstr(flagStr, "f") != NULL && strstr(flagStr, "S") == NULL && strstr(flagStr, "e") == NULL && strstr(flagStr, "E") == NULL) {
+            stringPattern(dirent, tabSpaces, pattern, dirDepth, flagStr, maxFileSize, count, path, smallEcmd, capitalE);
+        } 
+        // s and S
+        else if(strstr(flagStr, "s") != NULL && strstr(flagStr, "S") != NULL && strstr(flagStr, "f") == NULL && strstr(flagStr, "e") == NULL && strstr(flagStr, "E") == NULL) {
+            sizeRestrictedPrint(dirent, maxFileSize, tabSpaces, count, path, flagStr, smallEcmd, capitalE);
+        }
+        // S and f
+        else if(strstr(flagStr, "S") != NULL && strstr(flagStr, "f") != NULL && strstr(flagStr, "s") == NULL && strstr(flagStr, "e") == NULL && strstr(flagStr, "E") == NULL) {
+            stringPattern(dirent, tabSpaces, pattern, dirDepth, flagStr, maxFileSize, count, path, smallEcmd, capitalE);
+        }
+        // s and e
+        else if(strstr(flagStr, "s") != NULL && strstr(flagStr, "e") != NULL && strstr(flagStr,"S") == NULL && strstr(flagStr, "f") == NULL && strstr(flagStr, "E") == NULL) {
+            sizeRestrictedPrint(dirent, maxFileSize, tabSpaces, count, path, flagStr, smallEcmd, capitalE);
+        } // f and e
+        else if (strstr(flagStr, "f") != NULL && strstr(flagStr, "e") != NULL && strstr(flagStr,"S") == NULL && strstr(flagStr, "s") == NULL && strstr(flagStr, "E") == NULL) {
+            stringPattern(dirent, tabSpaces, pattern, dirDepth, flagStr, maxFileSize, count, path, smallEcmd, capitalE);
+        } // s and E
+        else if (strstr(flagStr, "s") != NULL && strstr(flagStr, "E") != NULL && strstr(flagStr,"S") == NULL && strstr(flagStr, "f") == NULL && strstr(flagStr, "e") == NULL) {
+            if(dirent->d_type != DT_DIR) {
+                sizeRestrictedPrint(dirent, maxFileSize, tabSpaces, count, path, flagStr, smallEcmd, capitalE);
+            }
+        } // f and E
+        else if (strstr(flagStr, "f") != NULL && strstr(flagStr, "E") != NULL && strstr(flagStr,"S") == NULL && strstr(flagStr, "s") == NULL && strstr(flagStr, "e") == NULL) {
+            if(dirent->d_type != DT_DIR) {
+                stringPattern(dirent, tabSpaces, pattern, dirDepth, flagStr, maxFileSize, count, path, smallEcmd, capitalE);
+            }
+        }
+        
+
         // single flags
-        else if (strstr(flagStr, "s") != NULL && strstr(flagStr, "f") == NULL && strstr(flagStr, "S") == NULL) {
-            sizeRestrictedPrint(dirent, maxFileSize, tabSpaces, count, path, flagStr);
+        // s
+        else if (strstr(flagStr, "s") != NULL && strstr(flagStr, "f") == NULL && strstr(flagStr, "S") == NULL && strstr(flagStr, "e") == NULL && strstr(flagStr, "E") == NULL) {
+            sizeRestrictedPrint(dirent, maxFileSize, tabSpaces, count, path, flagStr, smallEcmd, capitalE);
         }
-        else if(strstr(flagStr, "f") != NULL && strstr(flagStr, "s") == NULL && strstr(flagStr, "S") == NULL) {
-            stringPattern(dirent, tabSpaces, pattern, dirDepth, flagStr, maxFileSize, count, path);
+        // f
+        else if(strstr(flagStr, "f") != NULL && strstr(flagStr, "s") == NULL && strstr(flagStr, "S") == NULL && strstr(flagStr, "e") == NULL && strstr(flagStr, "E") == NULL) {
+            stringPattern(dirent, tabSpaces, pattern, dirDepth, flagStr, maxFileSize, count, path, smallEcmd, capitalE);
         }
-        else if(strstr(flagStr, "S") != NULL && strstr(flagStr, "f") == NULL && strstr(flagStr, "s") == NULL) {
-            printExtraInfo(dirent, path);
+        // S
+        else if(strstr(flagStr, "S") != NULL && strstr(flagStr, "f") == NULL && strstr(flagStr, "s") == NULL && strstr(flagStr, "e") == NULL && strstr(flagStr, "E") == NULL) {
+            printExtraInfo(dirent, path, flagStr, smallEcmd);
         }
+        // e
+        else  if(strstr(flagStr, "e") != NULL && strstr(flagStr, "S") == NULL && strstr(flagStr, "f") == NULL && strstr(flagStr, "s") == NULL && strstr(flagStr, "E") == NULL) {
+            // dirent
+            
+            if(dirent->d_type != DT_DIR) {
+                char *x = malloc(500);
+                strcpy(x,path);
+                strcat(x,"/");
+                strcat(x,dirent->d_name);
+                smallEfunc(dirent, smallEcmd, x);
+            }
+            
+            
+        }
+        // Regular Print
         else if(isReg != 0) {
             printReg(dirent, tabSpaces, count);
         }
@@ -204,6 +354,16 @@ void traverseDirectory(char *path, int tabSpaces, int maxFileSize, char *flagStr
         } else if(strstr(flagStr, "d") != NULL) {
             printOnly(dirent, tabSpaces, path, "d");
         }
+
+        char *z = (char *) malloc(MAX_PATH_SIZE);
+        strcpy(z, path);
+        strcat(z, "/");
+        strcat(z, dirent->d_name);
+
+        if(capitalE == 1 && dirent->d_type != DT_DIR && strstr(flagStr, "s") == NULL && strstr(flagStr, "f") == NULL) {
+                array[arrCount] = z;
+                arrCount = 1+arrCount;
+        }
    
         // Check to see if the file type is a directory. If it is, recursively call traverseDirectory on it.
         if (dirent->d_type == DT_DIR) {
@@ -212,12 +372,12 @@ void traverseDirectory(char *path, int tabSpaces, int maxFileSize, char *flagStr
             strcpy(subDirPath, path);
             strcat(subDirPath, "/");
             strcat(subDirPath, dirent->d_name);
-            traverseDirectory(subDirPath, tabSpaces + 1, maxFileSize, flagStr, pattern, dirDepth, isReg);
+            traverseDirectory(subDirPath, tabSpaces + 1, maxFileSize, flagStr, pattern, dirDepth, isReg, smallEcmd, capitalEcmd, capitalE);
         }
     } 
 }
 
-void decryptArguments(int argc, char *argv[], char **pattern, char **path, int *dirDepth, int *maxFileSize, int *onlyFiles, int *extraNeeded, int *sizeLimitation, int *depthNeeded) {
+void decryptArguments(int argc, char *argv[], char **pattern, char **path, int *dirDepth, int *maxFileSize, int *onlyFiles, int *extraNeeded, int *sizeLimitation, int *depthNeeded, int *smallE, int *capitalE, char **smallEcmd, char **capitalEcmd) {
     int gotPath = 0;
     for (int i=1; i<argc; i++) {
         if(argv[i][0] == '-') {
@@ -236,20 +396,30 @@ void decryptArguments(int argc, char *argv[], char **pattern, char **path, int *
                 i = i+2;
             }
             else if(argv[i][1] == 't') {
-                if(argv[i+1] == 'f') {
+                if(strcmp("f", argv[i+1]) == 0) {
                     *onlyFiles = 1;
+                    i++;
                 }
                 else {
                     *onlyFiles = 0;
+                    i++;
                 }
             }
-
+            else if(argv[i][1] == 'e') {
+                *smallE = 1;
+                *smallEcmd = argv[i+1];
+                i++;
+            }
+            else if(argv[i][1] == 'E') {
+                *capitalE = 1;
+                *capitalEcmd = argv[i+1];
+                i++;
+            }
         }
         else {
             *path = argv[i];
             gotPath = 1;
         }
-        
     }
     if (gotPath == 0) {
             *path = "./";
@@ -258,14 +428,13 @@ void decryptArguments(int argc, char *argv[], char **pattern, char **path, int *
 
 int main(int argc, char *argv[]) {
     int tabSpaces = 0;
-    // Check to see if the user provides at least 2 command-line-arguments.
 
-    char *pattern, *flagStr = malloc(50);
+    char *pattern, *smallEcmd, *capitalEcmd, *flagStr = malloc(50);
     char *path = NULL;
-    int dirDepth = -1, maxFileSize = -1, onlyFiles = -1, extraNeeded = 0, sizeLimitation = 0, depthNeeded = 0, isReg = 1;
+    int dirDepth = -1, maxFileSize = -1, onlyFiles = -1, extraNeeded = 0, sizeLimitation = 0, depthNeeded = 0, isReg = 1, smallE = 0, capitalE = 0;
     strcpy(flagStr, "");
     
-    decryptArguments(argc, argv, &pattern, &path, &dirDepth, &maxFileSize, &onlyFiles, &extraNeeded, &sizeLimitation, &depthNeeded);
+    decryptArguments(argc, argv, &pattern, &path, &dirDepth, &maxFileSize, &onlyFiles, &extraNeeded, &sizeLimitation, &depthNeeded, &smallE, &capitalE, &smallEcmd, &capitalEcmd);
 
     if(extraNeeded == 1) {
         strcat(flagStr, "S");
@@ -281,19 +450,42 @@ int main(int argc, char *argv[]) {
     } else if(onlyFiles == 0) {
         strcat(flagStr, "d");
     }
+    if(smallE == 1) {
+        strcat(flagStr, "e");
+        char *token = strtok(smallEcmd, " ");
+    
+        while(token != NULL) {
+            array[arrCount] = token;
+            token = strtok(NULL, " ");
+            arrCount= 1+arrCount;
 
+    }
+    }
+    if(capitalE == 1) {
+        strcat(flagStr, "E");
+        char *token = strtok(capitalEcmd, " ");
+    
+        while(token != NULL) {
+            array[arrCount] = token;
+            token = strtok(NULL, " ");
+            arrCount= 1+arrCount;
+    }
+    }
 
+    duplicateCount = arrCount;
     
     if (argc < 2) { 
-        printf("Hello");
-        traverseDirectory("./" ,tabSpaces, maxFileSize, flagStr, pattern, dirDepth, isReg);
+        traverseDirectory(path ,tabSpaces, maxFileSize, flagStr, pattern, dirDepth, isReg, smallEcmd, capitalEcmd, capitalE);
     }
     else if(onlyFiles == -1) {
-        traverseDirectory(path, tabSpaces, maxFileSize, flagStr, pattern, dirDepth, isReg);
+        traverseDirectory(path ,tabSpaces, maxFileSize, flagStr, pattern, dirDepth, isReg, smallEcmd, capitalEcmd, capitalE);
     }
     else {
         isReg = 0;
-        traverseDirectory("./", tabSpaces, maxFileSize, flagStr, pattern, dirDepth, isReg);
+        traverseDirectory(path ,tabSpaces, maxFileSize, flagStr, pattern, dirDepth, isReg, smallEcmd, capitalEcmd, capitalE);
+    }
+    if (capitalE == 1) {
+        capitalEfunc();
     }
     return 0;
 }
